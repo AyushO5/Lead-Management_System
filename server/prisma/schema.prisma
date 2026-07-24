@@ -1,0 +1,119 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Prisma Schema — Lead Management Platform
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  WON
+  LOST
+}
+
+enum ActivityType {
+  LEAD_CREATED
+  LEAD_ASSIGNED
+  STATUS_CHANGED
+  NOTE_ADDED
+  LEAD_UPDATED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  assignedLeads Lead[]     @relation("AssignedLeads")
+  notes         Note[]     @relation("AuthoredNotes")
+  activities    Activity[] @relation("UserActivities")
+
+  @@index([role])
+  @@map("users")
+}
+
+model Lead {
+  id           String     @id @default(cuid())
+  name         String
+  email        String
+  phone        String?
+  company      String?
+  message      String?
+  status       LeadStatus @default(NEW)
+  assignedToId String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  assignedTo User?      @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+  notes      Note[]     @relation("LeadNotes")
+  activities Activity[] @relation("LeadActivities")
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([email])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  content   String
+  leadId    String
+  authorId  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  lead   Lead @relation("LeadNotes", fields: [leadId], references: [id], onDelete: Cascade)
+  author User @relation("AuthoredNotes", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([leadId])
+  @@index([authorId])
+  @@map("notes")
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      ActivityType
+  oldValue  String?
+  newValue  String?
+  leadId    String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  lead Lead  @relation("LeadActivities", fields: [leadId], references: [id], onDelete: Cascade)
+  user User? @relation("UserActivities", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("activities")
+}

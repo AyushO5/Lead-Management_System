@@ -1,0 +1,6 @@
+# Per-project ignores are in client/.gitignore and server/.gitignore
+# Root-level catches
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
