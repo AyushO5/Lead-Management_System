@@ -9,17 +9,17 @@ import {
 } from './lead.service';
 import { leadUpdateSchema, leadListQuerySchema } from './lead.schema';
 import { createError } from '../../middleware/error.middleware';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+import { z } from 'zod';
 
 function requester(req: Request) {
   if (!req.user) throw createError('Unauthenticated', 401);
   return { userId: req.user.userId, role: req.user.role };
 }
 
-// GET /api/leads
+const assignLeadSchema = z.object({
+  userId: z.string().trim().min(1),
+});
+
 export async function list(req: Request, res: Response) {
   const parsed = leadListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -29,7 +29,6 @@ export async function list(req: Request, res: Response) {
   res.json({ data: result.data, pagination: result.pagination });
 }
 
-// GET /api/leads/:id – details
 export async function get(req: Request, res: Response) {
   const { id } = req.params as { id: string };
   const lead = await getLead(id, requester(req));
@@ -37,7 +36,6 @@ export async function get(req: Request, res: Response) {
   res.json({ data: lead });
 }
 
-// PATCH /api/leads/:id – update fields (including status)
 export async function update(req: Request, res: Response) {
   const { id } = req.params as { id: string };
   const parsed = leadUpdateSchema.safeParse(req.body);
@@ -49,23 +47,23 @@ export async function update(req: Request, res: Response) {
   res.json({ data: updated });
 }
 
-// DELETE /api/leads/:id – admin only (middleware will enforce)
 export async function remove(req: Request, res: Response) {
   const { id } = req.params as { id: string };
   await deleteLead(id);
   res.status(204).send();
 }
 
-// PATCH /api/leads/:id/assign – admin only
 export async function assign(req: Request, res: Response) {
   const { id } = req.params as { id: string };
-  const { userId } = req.body;
-  if (!userId) throw createError('userId is required', 400);
-  const updated = await assignLead(id, userId, requester(req).userId);
+  const parsed = assignLeadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw createError('Invalid request body', 400);
+  }
+
+  const updated = await assignLead(id, parsed.data.userId, requester(req).userId);
   res.json({ data: updated });
 }
 
-// GET /api/leads/:id/activities – list activities
 export async function activities(req: Request, res: Response) {
   const { id } = req.params as { id: string };
   const acts = await getLeadActivities(id, requester(req));
