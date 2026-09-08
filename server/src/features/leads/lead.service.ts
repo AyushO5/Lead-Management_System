@@ -3,10 +3,6 @@ import { prisma } from '../../lib/prisma';
 import { LeadUpdateInput, LeadListQuery } from './lead.schema';
 import { ActivityType } from '@prisma/client';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper to create activity records using the supplied Prisma client/transaction
-// ─────────────────────────────────────────────────────────────────────────────
-
 function activityCreateBase(
   db: Prisma.TransactionClient | typeof prisma,
   data: {
@@ -20,15 +16,9 @@ function activityCreateBase(
   return db.activity.create({ data });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Lead service functions
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** List leads with pagination, filters, and search. */
 export async function listLeads(params: LeadListQuery, requester: { userId: string; role: string }) {
   const { page, limit, status, assignedTo, search } = params;
   const skip = (page - 1) * limit;
-
   const where: Prisma.LeadWhereInput = {};
 
   if (status) where.status = status;
@@ -54,6 +44,9 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
+      },
     }),
   ]);
 
@@ -61,17 +54,18 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
   return { data, pagination: { page, limit, total, totalPages } };
 }
 
-/** Get a single lead (ADMIN can fetch any, MEMBER only own). */
 export async function getLead(id: string, requester: { userId: string; role: string }) {
-  const lead = await prisma.lead.findUnique({ where: { id } });
+  const lead = await prisma.lead.findUnique({
+    where: { id },
+    include: {
+      assignedTo: { select: { id: true, name: true, email: true, role: true } },
+    },
+  });
   if (!lead) return null;
-  if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) {
-    return null;
-  }
+  if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) return null;
   return lead;
 }
 
-/** Update lead fields and atomically record a status-change activity. */
 export async function updateLead(
   id: string,
   updates: LeadUpdateInput,
@@ -85,12 +79,11 @@ export async function updateLead(
 
   return prisma.$transaction(async (tx) => {
     const { status, ...rest } = updates;
-
     const updatedLead = await tx.lead.update({
       where: { id },
-      data: {
-        ...rest,
-        ...(status ? { status } : {}),
+      data: { ...rest, ...(status ? { status } : {}) },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
@@ -108,12 +101,10 @@ export async function updateLead(
   });
 }
 
-/** Delete a lead – ADMIN only. */
 export async function deleteLead(id: string) {
   await prisma.lead.delete({ where: { id } });
 }
 
-/** Assign a lead to a user – ADMIN only. */
 export async function assignLead(
   leadId: string,
   newUserId: string,
@@ -122,12 +113,22 @@ export async function assignLead(
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   if (!lead) throw new Error('Lead not found');
 
+  const assignee = await prisma.user.findUnique({
+    where: { id: newUserId },
+    select: { id: true, role: true },
+  });
+  if (!assignee) throw new Error('User not found');
+  if (assignee.role !== 'MEMBER') throw new Error('Leads can only be assigned to members');
+
   const oldUserId = lead.assignedToId ?? null;
 
   const tx = await prisma.$transaction([
     prisma.lead.update({
       where: { id: leadId },
       data: { assignedToId: newUserId },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
+      },
     }),
     activityCreateBase(prisma, {
       type: ActivityType.LEAD_ASSIGNED,
@@ -140,7 +141,6 @@ export async function assignLead(
   return tx[0];
 }
 
-/** Retrieve activities for a lead – ordered newest first. */
 export async function getLeadActivities(
   leadId: string,
   requester: { userId: string; role: string },
