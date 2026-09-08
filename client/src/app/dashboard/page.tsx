@@ -6,22 +6,14 @@ import { AppShell } from '@/components/layout/AppShell';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { LoadingSpinner, ErrorMessage } from '@/components/ui/Feedback';
 import { api, ApiClientError } from '@/lib/api';
-import { Lead, LeadStatus, PaginatedResponse } from '@/types';
-
-interface StatusCounts {
-  total: number;
-  NEW: number;
-  CONTACTED: number;
-  QUALIFIED: number;
-  WON: number;
-}
+import { DashboardStats, LeadStatus } from '@/types';
 
 const STAT_CARDS = [
-  { key: 'total',     label: 'Total Leads',  color: 'bg-slate-100 text-slate-700' },
-  { key: 'NEW',       label: 'New',           color: 'bg-blue-100 text-blue-700'   },
-  { key: 'CONTACTED', label: 'Contacted',     color: 'bg-yellow-100 text-yellow-700'},
-  { key: 'QUALIFIED', label: 'Qualified',     color: 'bg-purple-100 text-purple-700'},
-  { key: 'WON',       label: 'Won',           color: 'bg-green-100 text-green-700'  },
+  { key: 'total',     label: 'Total Leads', color: 'bg-slate-100 text-slate-700' },
+  { key: 'NEW',       label: 'New',         color: 'bg-blue-100 text-blue-700' },
+  { key: 'CONTACTED', label: 'Contacted',   color: 'bg-yellow-100 text-yellow-700' },
+  { key: 'QUALIFIED', label: 'Qualified',   color: 'bg-purple-100 text-purple-700' },
+  { key: 'WON',       label: 'Won',          color: 'bg-green-100 text-green-700' },
 ] as const;
 
 function formatDate(iso: string) {
@@ -31,8 +23,7 @@ function formatDate(iso: string) {
 }
 
 export default function DashboardPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [counts, setCounts] = useState<StatusCounts>({ total: 0, NEW: 0, CONTACTED: 0, QUALIFIED: 0, WON: 0 });
+  const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -40,15 +31,8 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     try {
-      // Fetch up to 100 leads to derive counts; also grab recent 5
-      const res = await api.get<PaginatedResponse<Lead>>('/api/leads?page=1&limit=100');
-      const all = res.data;
-      const c: StatusCounts = { total: res.pagination.total, NEW: 0, CONTACTED: 0, QUALIFIED: 0, WON: 0 };
-      all.forEach((l) => {
-        if (l.status in c) (c as unknown as Record<string, number>)[l.status]++;
-      });
-      setCounts(c);
-      setLeads(all.slice(0, 6)); // show 6 most recent
+      const res = await api.get<{ data: DashboardStats }>('/api/dashboard/stats');
+      setDashboard(res.data);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Failed to load dashboard');
     } finally {
@@ -64,22 +48,20 @@ export default function DashboardPage() {
         <LoadingSpinner />
       ) : error ? (
         <ErrorMessage message={error} onRetry={load} />
-      ) : (
+      ) : dashboard ? (
         <div className="space-y-6">
-          {/* Stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             {STAT_CARDS.map(({ key, label, color }) => (
               <div key={key} className="rounded-xl bg-white border border-gray-200 p-5 shadow-sm">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
                 <p className={`mt-2 text-3xl font-bold ${color.split(' ')[1]}`}>
-                  {key === 'total' ? counts.total : (counts as unknown as Record<string, number>)[key] ?? 0}
+                  {dashboard.counts[key]}
                 </p>
                 <div className={`mt-3 h-1 rounded-full ${color.split(' ')[0]} opacity-60`} />
               </div>
             ))}
           </div>
 
-          {/* Recent leads */}
           <div className="rounded-xl bg-white border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-sm font-semibold text-gray-700">Recent Leads</h2>
@@ -87,11 +69,11 @@ export default function DashboardPage() {
                 View all →
               </Link>
             </div>
-            {leads.length === 0 ? (
+            {dashboard.recentLeads.length === 0 ? (
               <p className="px-6 py-8 text-sm text-gray-500 text-center">No leads yet.</p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {leads.map((lead) => (
+                {dashboard.recentLeads.map((lead) => (
                   <Link
                     key={lead.id}
                     href={`/leads/${lead.id}`}
@@ -111,7 +93,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </AppShell>
   );
 }
