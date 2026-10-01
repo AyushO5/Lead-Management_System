@@ -73,6 +73,19 @@ export interface PaginatedResponse<T> {
   pagination: Pagination;
 }
 
+export interface DashboardStats {
+  counts: {
+    total: number;
+    NEW: number;
+    CONTACTED: number;
+    QUALIFIED: number;
+    PROPOSAL: number;
+    WON: number;
+    LOST: number;
+  };
+  recentLeads: Lead[];
+}
+
 export interface ApiResponse<T> {
   data: T;
 }

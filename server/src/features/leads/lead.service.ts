@@ -2,36 +2,30 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { LeadUpdateInput, LeadListQuery } from './lead.schema';
 import { ActivityType } from '@prisma/client';
+import { createError } from '../../middleware/error.middleware';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper to create activity records (used in transactions)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function activityCreateBase(data: {
-  type: ActivityType;
-  leadId: string;
-  userId?: string;
-  oldValue?: string | null;
-  newValue?: string | null;
-}) {
-  return prisma.activity.create({ data });
+function activityCreateBase(
+  db: Prisma.TransactionClient | typeof prisma,
+  data: {
+    type: ActivityType;
+    leadId: string;
+    userId?: string;
+    oldValue?: string | null;
+    newValue?: string | null;
+  },
+) {
+  return db.activity.create({ data });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Lead service functions
-// ─────────────────────────────────────────────────────────────────────────────
+const safeUserSelect = { id: true, name: true, email: true, role: true } as const;
 
-/** List leads with pagination, filters, and search. */
 export async function listLeads(params: LeadListQuery, requester: { userId: string; role: string }) {
   const { page, limit, status, assignedTo, search } = params;
   const skip = (page - 1) * limit;
-
-  // Base where clause – members are forced to their own leads
   const where: Prisma.LeadWhereInput = {};
 
   if (status) where.status = status;
 
-  // Member restriction – ignore any supplied assignedTo filter for MEMBER
   if (requester.role === 'ADMIN') {
     if (assignedTo) where.assignedToId = assignedTo;
   } else {
@@ -53,129 +47,122 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
-      include: {
-        assignedTo: { select: { id: true, name: true, email: true } },
-      },
+      include: { assignedTo: { select: safeUserSelect } },
     }),
   ]);
 
-  const totalPages = Math.ceil(total / limit);
-  return { data, pagination: { page, limit, total, totalPages } };
+  return {
+    data,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
 }
 
-/** Get a single lead (ADMIN can fetch any, MEMBER only own). */
 export async function getLead(id: string, requester: { userId: string; role: string }) {
   const lead = await prisma.lead.findUnique({
     where: { id },
-    include: {
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
+    include: { assignedTo: { select: safeUserSelect } },
   });
   if (!lead) return null;
-  if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) {
-    return null; // hide from unauthorized members
-  }
+  if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) return null;
   return lead;
 }
 
-/** Update lead fields. For status change, creates a STATUS_CHANGED activity.
- *  Returns the updated lead.
- */
 export async function updateLead(
   id: string,
   updates: LeadUpdateInput,
   requester: { userId: string; role: string },
 ) {
-  // Load current lead for permission checks and old values
   const current = await prisma.lead.findUnique({ where: { id } });
-  if (!current) throw new Error('Lead not found');
+  if (!current) throw createError('Lead not found', 404);
   if (requester.role !== 'ADMIN' && current.assignedToId !== requester.userId) {
-    throw new Error('Forbidden');
+    throw createError('Forbidden', 403);
   }
 
-  // Build the single lead update data object — merge all changed fields at once
-  const leadData: Prisma.LeadUpdateInput = { ...updates };
+  return prisma.$transaction(async (tx) => {
+    const { status, ...rest } = updates;
+    const updatedLead = await tx.lead.update({
+      where: { id },
+      data: { ...rest, ...(status ? { status } : {}) },
+      include: { assignedTo: { select: safeUserSelect } },
+    });
 
-  // Build transaction steps
-  const tx: Prisma.PrismaPromise<any>[] = [];
-
-  // If status is being changed, record a STATUS_CHANGED activity
-  if (updates.status && updates.status !== current.status) {
-    tx.push(
-      activityCreateBase({
+    if (status && status !== current.status) {
+      await activityCreateBase(tx, {
         type: ActivityType.STATUS_CHANGED,
         leadId: id,
         userId: requester.userId,
         oldValue: current.status,
-        newValue: updates.status,
-      }),
-    );
-  }
+        newValue: status,
+      });
+    }
 
-  // Single lead.update containing ALL changed fields (status + any other fields)
-  tx.push(
-    prisma.lead.update({
-      where: { id },
-      data: leadData,
-      include: { assignedTo: { select: { id: true, name: true, email: true } } },
-    }),
-  );
-
-  const results = await prisma.$transaction(tx);
-  // The last entry is always the lead update result
-  return results[results.length - 1] as Prisma.LeadGetPayload<{
-    include: { assignedTo: { select: { id: true; name: true; email: true } } };
-  }>;
+    return updatedLead;
+  });
 }
 
-/** Delete a lead – ADMIN only. */
 export async function deleteLead(id: string) {
-  // Cascade delete is defined in Prisma schema for notes & activities
-  await prisma.lead.delete({ where: { id } });
+  try {
+    await prisma.lead.delete({ where: { id } });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      throw createError('Lead not found', 404);
+    }
+    throw err;
+  }
 }
 
-/** Assign a lead to a user – ADMIN only. */
 export async function assignLead(
   leadId: string,
   newUserId: string,
   adminId: string,
 ) {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-  if (!lead) throw new Error('Lead not found');
+  if (!lead) throw createError('Lead not found', 404);
+
+  const assignee = await prisma.user.findUnique({
+    where: { id: newUserId },
+    select: { id: true, role: true },
+  });
+  if (!assignee) throw createError('User not found', 404);
+  if (assignee.role !== 'MEMBER') {
+    throw createError('Leads can only be assigned to members', 400);
+  }
 
   const oldUserId = lead.assignedToId ?? null;
 
-  const tx = await prisma.$transaction([
-    prisma.lead.update({
+  return prisma.$transaction(async (tx) => {
+    const updatedLead = await tx.lead.update({
       where: { id: leadId },
       data: { assignedToId: newUserId },
-    }),
-    activityCreateBase({
+      include: { assignedTo: { select: safeUserSelect } },
+    });
+
+    await activityCreateBase(tx, {
       type: ActivityType.LEAD_ASSIGNED,
       leadId,
       userId: adminId,
       oldValue: oldUserId,
       newValue: newUserId,
-    }),
-  ]);
-  return tx[0]; // updated lead
+    });
+
+    return updatedLead;
+  });
 }
 
-/** Retrieve activities for a lead – ordered newest first. */
 export async function getLeadActivities(
   leadId: string,
   requester: { userId: string; role: string },
 ) {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-  if (!lead) throw new Error('Lead not found');
+  if (!lead) throw createError('Lead not found', 404);
   if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) {
-    throw new Error('Forbidden');
+    throw createError('Forbidden', 403);
   }
 
   return prisma.activity.findMany({
     where: { leadId },
     orderBy: { createdAt: 'desc' },
-    include: { user: { select: { id: true, name: true, email: true, role: true } } },
+    include: { user: { select: safeUserSelect } },
   });
 }
 

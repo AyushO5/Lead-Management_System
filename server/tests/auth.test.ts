@@ -1,4 +1,5 @@
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import app from '../src/app';
 import { resetDatabase, createTestUser, loginAndGetToken } from './helpers';
@@ -26,7 +27,6 @@ describe('AUTHENTICATION', () => {
       .send({ email: 'admin@test.com', password: 'adminpass' });
 
     expect(res.status).toBe(200);
-    // API wraps response in { data: { token, user } }
     expect(res.body.data).toHaveProperty('token');
     expect(res.body.data).toHaveProperty('user');
     expect(res.body.data.user.passwordHash).toBeUndefined();
@@ -51,13 +51,29 @@ describe('AUTHENTICATION', () => {
     expect(res.status).toBe(401);
   });
 
+  it('JWT with invalid claims returns 401', async () => {
+    const secret = process.env.JWT_SECRET;
+    expect(secret).toBeTruthy();
+
+    const token = jwt.sign(
+      { userId: 'test-user', role: 'INVALID' },
+      secret as string,
+      { expiresIn: '1h' },
+    );
+
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(401);
+  });
+
   it('/api/auth/me with valid token returns user without passwordHash', async () => {
     const res = await request(app)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-    // API returns { data: { user: {...} } }
     const user = res.body?.data?.user ?? res.body?.data;
     expect(user).toHaveProperty('id', adminId);
     expect(user.passwordHash).toBeUndefined();

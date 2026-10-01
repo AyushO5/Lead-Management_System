@@ -6,9 +6,9 @@ import { AppShell } from '@/components/layout/AppShell';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { LoadingSpinner, ErrorMessage } from '@/components/ui/Feedback';
 import { api, ApiClientError } from '@/lib/api';
-import { Lead, LeadStatus, LeadCounts, PaginatedResponse, ApiResponse } from '@/types';
+import { DashboardStats, LeadStatus } from '@/types';
 
-const STAT_CARDS: { key: keyof LeadCounts | 'total'; label: string; color: string }[] = [
+const STAT_CARDS = [
   { key: 'total',     label: 'Total Leads',  color: 'bg-slate-100 text-slate-700' },
   { key: 'NEW',       label: 'New',           color: 'bg-blue-100 text-blue-700'   },
   { key: 'CONTACTED', label: 'Contacted',     color: 'bg-yellow-100 text-yellow-700'},
@@ -16,7 +16,7 @@ const STAT_CARDS: { key: keyof LeadCounts | 'total'; label: string; color: strin
   { key: 'PROPOSAL',  label: 'Proposal',      color: 'bg-orange-100 text-orange-700'},
   { key: 'WON',       label: 'Won',           color: 'bg-green-100 text-green-700'  },
   { key: 'LOST',      label: 'Lost',          color: 'bg-red-100 text-red-700'      },
-];
+] as const;
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -25,8 +25,7 @@ function formatDate(iso: string) {
 }
 
 export default function DashboardPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [counts, setCounts] = useState<LeadCounts>({ total: 0, NEW: 0, CONTACTED: 0, QUALIFIED: 0, PROPOSAL: 0, WON: 0, LOST: 0 });
+  const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -34,13 +33,8 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     try {
-      // Two parallel requests: accurate server-side counts + 6 most-recent leads
-      const [countsRes, leadsRes] = await Promise.all([
-        api.get<ApiResponse<LeadCounts>>('/api/leads/counts'),
-        api.get<PaginatedResponse<Lead>>('/api/leads?page=1&limit=6'),
-      ]);
-      setCounts(countsRes.data);
-      setLeads(leadsRes.data);
+      const res = await api.get<{ data: DashboardStats }>('/api/dashboard/stats');
+      setDashboard(res.data);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Failed to load dashboard');
     } finally {
@@ -56,15 +50,15 @@ export default function DashboardPage() {
         <LoadingSpinner />
       ) : error ? (
         <ErrorMessage message={error} onRetry={load} />
-      ) : (
+      ) : dashboard ? (
         <div className="space-y-6">
-          {/* Stat cards */}
+          {/* Stat cards — 7 cards: total + 6 statuses */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
             {STAT_CARDS.map(({ key, label, color }) => (
               <div key={key} className="rounded-xl bg-white border border-gray-200 p-5 shadow-sm">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
                 <p className={`mt-2 text-3xl font-bold ${color.split(' ')[1]}`}>
-                  {counts[key as keyof LeadCounts] ?? 0}
+                  {(dashboard.counts as Record<string, number>)[key] ?? 0}
                 </p>
                 <div className={`mt-3 h-1 rounded-full ${color.split(' ')[0]} opacity-60`} />
               </div>
@@ -79,11 +73,11 @@ export default function DashboardPage() {
                 View all →
               </Link>
             </div>
-            {leads.length === 0 ? (
+            {dashboard.recentLeads.length === 0 ? (
               <p className="px-6 py-8 text-sm text-gray-500 text-center">No leads yet.</p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {leads.map((lead) => (
+                {dashboard.recentLeads.map((lead) => (
                   <Link
                     key={lead.id}
                     href={`/leads/${lead.id}`}
@@ -106,7 +100,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </AppShell>
   );
 }
