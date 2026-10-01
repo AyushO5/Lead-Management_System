@@ -6,6 +6,7 @@ import {
   deleteLead,
   assignLead,
   getLeadActivities,
+  getLeadCounts,
 } from './lead.service';
 import { leadUpdateSchema, leadListQuerySchema } from './lead.schema';
 import { createError } from '../../middleware/error.middleware';
@@ -70,4 +71,10 @@ export async function activities(req: Request, res: Response) {
   const { id } = req.params as { id: string };
   const acts = await getLeadActivities(id, requester(req));
   res.json({ data: acts });
+}
+
+// GET /api/leads/counts – per-status counts for the current user
+export async function counts(req: Request, res: Response) {
+  const data = await getLeadCounts(requester(req));
+  res.json({ data });
 }

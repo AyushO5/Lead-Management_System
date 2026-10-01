@@ -39,7 +39,6 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
   }
 
   if (search) {
-    const like = `%${search}%`;
     where.OR = [
       { name: { contains: search, mode: 'insensitive' } },
       { email: { contains: search, mode: 'insensitive' } },
@@ -54,6 +53,9 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
     }),
   ]);
 
@@ -63,7 +65,12 @@ export async function listLeads(params: LeadListQuery, requester: { userId: stri
 
 /** Get a single lead (ADMIN can fetch any, MEMBER only own). */
 export async function getLead(id: string, requester: { userId: string; role: string }) {
-  const lead = await prisma.lead.findUnique({ where: { id } });
+  const lead = await prisma.lead.findUnique({
+    where: { id },
+    include: {
+      assignedTo: { select: { id: true, name: true, email: true } },
+    },
+  });
   if (!lead) return null;
   if (requester.role !== 'ADMIN' && lead.assignedToId !== requester.userId) {
     return null; // hide from unauthorized members
@@ -86,10 +93,13 @@ export async function updateLead(
     throw new Error('Forbidden');
   }
 
+  // Build the single lead update data object — merge all changed fields at once
+  const leadData: Prisma.LeadUpdateInput = { ...updates };
+
   // Build transaction steps
   const tx: Prisma.PrismaPromise<any>[] = [];
 
-  // If status is being changed, record activity
+  // If status is being changed, record a STATUS_CHANGED activity
   if (updates.status && updates.status !== current.status) {
     tx.push(
       activityCreateBase({
@@ -102,20 +112,20 @@ export async function updateLead(
     );
   }
 
-  // Apply generic field updates (excluding status handled above)
-  const { status, ...rest } = updates;
-  if (Object.keys(rest).length > 0) {
-    tx.push(prisma.lead.update({ where: { id }, data: rest }));
-  }
-
-  // If only status changed (no other fields) we still need to update the lead
-  if (updates.status) {
-    tx.push(prisma.lead.update({ where: { id }, data: { status: updates.status } }));
-  }
+  // Single lead.update containing ALL changed fields (status + any other fields)
+  tx.push(
+    prisma.lead.update({
+      where: { id },
+      data: leadData,
+      include: { assignedTo: { select: { id: true, name: true, email: true } } },
+    }),
+  );
 
   const results = await prisma.$transaction(tx);
-  // The last lead update result contains the fresh lead
-  return results[results.length - 1] as Prisma.LeadGetPayload<{}>;
+  // The last entry is always the lead update result
+  return results[results.length - 1] as Prisma.LeadGetPayload<{
+    include: { assignedTo: { select: { id: true; name: true; email: true } } };
+  }>;
 }
 
 /** Delete a lead – ADMIN only. */
@@ -167,4 +177,36 @@ export async function getLeadActivities(
     orderBy: { createdAt: 'desc' },
     include: { user: { select: { id: true, name: true, email: true, role: true } } },
   });
+}
+
+/** Return per-status counts for the leads visible to the requester.
+ *  ADMIN sees all leads; MEMBER sees only their own assigned leads.
+ *  Returns: { total, NEW, CONTACTED, QUALIFIED, PROPOSAL, WON, LOST }
+ */
+export async function getLeadCounts(requester: { userId: string; role: string }) {
+  const where: Prisma.LeadWhereInput =
+    requester.role === 'ADMIN' ? {} : { assignedToId: requester.userId };
+
+  const groups = await prisma.lead.groupBy({
+    by: ['status'],
+    where,
+    _count: { status: true },
+  });
+
+  const counts: Record<string, number> = {
+    total: 0,
+    NEW: 0,
+    CONTACTED: 0,
+    QUALIFIED: 0,
+    PROPOSAL: 0,
+    WON: 0,
+    LOST: 0,
+  };
+
+  for (const g of groups) {
+    counts[g.status] = g._count.status;
+    counts.total += g._count.status;
+  }
+
+  return counts;
 }

@@ -24,7 +24,7 @@ export const leadListQuerySchema = z.object({
   page:        z.coerce.number().int().min(1).default(1),
   limit:       z.coerce.number().int().min(1).max(100).default(10),
   status:      z.nativeEnum(LeadStatus).optional(),
-  assignedTo:  z.string().uuid().optional(),
+  assignedTo:  z.string().cuid().optional(),
   search:      z.string().max(255).optional(),
 });
 

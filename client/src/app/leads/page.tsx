@@ -157,7 +157,9 @@ export default function LeadsPage() {
                           <StatusBadge status={lead.status as LeadStatus} />
                         </td>
                         <td className="hidden lg:table-cell px-4 py-3 text-gray-500">
-                          {lead.assignedToId ? <span className="text-gray-700">{lead.assignedToId.slice(0, 8)}…</span> : <span className="text-gray-300">Unassigned</span>}
+                          {lead.assignedTo
+                            ? <span className="text-gray-700">{lead.assignedTo.name}</span>
+                            : <span className="text-gray-300">Unassigned</span>}
                         </td>
                         <td className="hidden lg:table-cell px-4 py-3 text-gray-400">{formatDate(lead.createdAt)}</td>
                         <td className="px-4 py-3">

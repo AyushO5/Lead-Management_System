@@ -6,23 +6,17 @@ import { AppShell } from '@/components/layout/AppShell';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { LoadingSpinner, ErrorMessage } from '@/components/ui/Feedback';
 import { api, ApiClientError } from '@/lib/api';
-import { Lead, LeadStatus, PaginatedResponse } from '@/types';
+import { Lead, LeadStatus, LeadCounts, PaginatedResponse, ApiResponse } from '@/types';
 
-interface StatusCounts {
-  total: number;
-  NEW: number;
-  CONTACTED: number;
-  QUALIFIED: number;
-  WON: number;
-}
-
-const STAT_CARDS = [
+const STAT_CARDS: { key: keyof LeadCounts | 'total'; label: string; color: string }[] = [
   { key: 'total',     label: 'Total Leads',  color: 'bg-slate-100 text-slate-700' },
   { key: 'NEW',       label: 'New',           color: 'bg-blue-100 text-blue-700'   },
   { key: 'CONTACTED', label: 'Contacted',     color: 'bg-yellow-100 text-yellow-700'},
   { key: 'QUALIFIED', label: 'Qualified',     color: 'bg-purple-100 text-purple-700'},
+  { key: 'PROPOSAL',  label: 'Proposal',      color: 'bg-orange-100 text-orange-700'},
   { key: 'WON',       label: 'Won',           color: 'bg-green-100 text-green-700'  },
-] as const;
+  { key: 'LOST',      label: 'Lost',          color: 'bg-red-100 text-red-700'      },
+];
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -32,7 +26,7 @@ function formatDate(iso: string) {
 
 export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [counts, setCounts] = useState<StatusCounts>({ total: 0, NEW: 0, CONTACTED: 0, QUALIFIED: 0, WON: 0 });
+  const [counts, setCounts] = useState<LeadCounts>({ total: 0, NEW: 0, CONTACTED: 0, QUALIFIED: 0, PROPOSAL: 0, WON: 0, LOST: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -40,15 +34,13 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     try {
-      // Fetch up to 100 leads to derive counts; also grab recent 5
-      const res = await api.get<PaginatedResponse<Lead>>('/api/leads?page=1&limit=100');
-      const all = res.data;
-      const c: StatusCounts = { total: res.pagination.total, NEW: 0, CONTACTED: 0, QUALIFIED: 0, WON: 0 };
-      all.forEach((l) => {
-        if (l.status in c) (c as unknown as Record<string, number>)[l.status]++;
-      });
-      setCounts(c);
-      setLeads(all.slice(0, 6)); // show 6 most recent
+      // Two parallel requests: accurate server-side counts + 6 most-recent leads
+      const [countsRes, leadsRes] = await Promise.all([
+        api.get<ApiResponse<LeadCounts>>('/api/leads/counts'),
+        api.get<PaginatedResponse<Lead>>('/api/leads?page=1&limit=6'),
+      ]);
+      setCounts(countsRes.data);
+      setLeads(leadsRes.data);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Failed to load dashboard');
     } finally {
@@ -67,12 +59,12 @@ export default function DashboardPage() {
       ) : (
         <div className="space-y-6">
           {/* Stat cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
             {STAT_CARDS.map(({ key, label, color }) => (
               <div key={key} className="rounded-xl bg-white border border-gray-200 p-5 shadow-sm">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
                 <p className={`mt-2 text-3xl font-bold ${color.split(' ')[1]}`}>
-                  {key === 'total' ? counts.total : (counts as unknown as Record<string, number>)[key] ?? 0}
+                  {counts[key as keyof LeadCounts] ?? 0}
                 </p>
                 <div className={`mt-3 h-1 rounded-full ${color.split(' ')[0]} opacity-60`} />
               </div>
@@ -103,6 +95,9 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-4 ml-4 flex-shrink-0">
                       <StatusBadge status={lead.status as LeadStatus} />
+                      {lead.assignedTo && (
+                        <span className="hidden md:block text-xs text-gray-500">{lead.assignedTo.name}</span>
+                      )}
                       <span className="hidden sm:block text-xs text-gray-400">{formatDate(lead.createdAt)}</span>
                     </div>
                   </Link>

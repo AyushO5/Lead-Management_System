@@ -32,7 +32,7 @@ if (dbName !== 'lead_management_test') {
 if (dbHost !== 'localhost') {
   throw new Error(`Safety check failed: expected host "localhost", got "${dbHost}"`);
 }
-if (dbPort !== '5433') {
+if (dbPort !== '5432') {
   throw new Error(`Safety check failed: expected port "5433", got "${dbPort}"`);
 }
 

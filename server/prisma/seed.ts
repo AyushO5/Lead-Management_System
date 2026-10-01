@@ -57,6 +57,29 @@ async function main() {
     console.log('✅ Seed complete');
     console.log(`   Admin  → id: ${admin.id}  email: ${admin.email}`);
     console.log(`   Member → id: ${member.id}  email: ${member.email}`);
+
+    // Seed fictional leads
+    const fictionalLeads = [
+      { email: 'rahul.demo@example.com', name: 'Rahul Sharma', company: 'TechNova', status: 'NEW', assignedToId: null },
+      { email: 'priya.demo@example.com', name: 'Priya Patel', company: 'Global Solutions', status: 'CONTACTED', assignedToId: member.id },
+      { email: 'arjun.demo@example.com', name: 'Arjun Mehta', company: 'Innovate Inc', status: 'QUALIFIED', assignedToId: member.id },
+      { email: 'neha.demo@example.com', name: 'Neha Verma', company: 'Nexus Dynamics', status: 'PROPOSAL', assignedToId: admin.id },
+    ];
+
+    for (const lead of fictionalLeads) {
+      await prisma.lead.upsert({
+        where: { email: lead.email },
+        update: { status: lead.status as any, assignedToId: lead.assignedToId },
+        create: {
+          email: lead.email,
+          name: lead.name,
+          company: lead.company,
+          status: lead.status as any,
+          assignedToId: lead.assignedToId,
+        }
+      });
+    }
+    console.log(`   Seeded ${fictionalLeads.length} fictional leads.`);
   } finally {
     await prisma.$disconnect();
   }

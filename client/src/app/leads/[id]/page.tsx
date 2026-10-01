@@ -177,7 +177,7 @@ function ActivityTimeline({ leadId }: { leadId: string }) {
                       </span>
                     )}
                     {act.type === 'LEAD_ASSIGNED' && act.newValue && (
-                      <span className="text-gray-500 ml-1">to user {act.newValue.slice(0, 8)}…</span>
+                      <span className="text-gray-500 ml-1">→ assigned to new member</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
@@ -364,9 +364,9 @@ export default function LeadDetailPage() {
               {isAdmin && (
                 <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-5">
                   <h3 className="text-sm font-semibold text-gray-700 mb-1">Assign Lead</h3>
-                  {lead.assignedToId && (
+                  {lead.assignedTo && (
                     <p className="text-xs text-gray-400 mb-3">
-                      Currently assigned to user {lead.assignedToId.slice(0, 8)}…
+                      Currently assigned to {lead.assignedTo.name}
                     </p>
                   )}
                   <Select

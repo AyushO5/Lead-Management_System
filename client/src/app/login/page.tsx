@@ -64,8 +64,25 @@ export default function LoginPage() {
           <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center">
             <span className="text-white text-xl font-bold">LM</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Welcome back</h1>
-          <p className="mt-1 text-sm text-gray-500">Sign in to your LeadFlow account</p>
+          <h1 className="text-2xl font-bold text-gray-900">Explore the CRM</h1>
+          <p className="mt-1 text-sm text-gray-500">Use one of the demo accounts below to explore the application.</p>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          <Button 
+            variant="secondary" 
+            className="text-xs py-2 h-auto" 
+            onClick={() => { setEmail('admin@example.com'); setPassword('adminpass'); }}
+          >
+            ADMIN DEMO
+          </Button>
+          <Button 
+            variant="secondary" 
+            className="text-xs py-2 h-auto" 
+            onClick={() => { setEmail('member@example.com'); setPassword('memberpass'); }}
+          >
+            MEMBER DEMO
+          </Button>
         </div>
 
         <div className="rounded-2xl bg-white p-8 shadow-sm border border-gray-200">

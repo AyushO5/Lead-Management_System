@@ -36,7 +36,7 @@ export interface Lead {
   message: string | null;
   status: LeadStatus;
   assignedToId: string | null;
-  assignedTo?: User | null;
+  assignedTo: Pick<User, 'id' | 'name' | 'email'> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,4 +79,14 @@ export interface ApiResponse<T> {
 
 export interface ApiError {
   error: string;
+}
+
+export interface LeadCounts {
+  total: number;
+  NEW: number;
+  CONTACTED: number;
+  QUALIFIED: number;
+  PROPOSAL: number;
+  WON: number;
+  LOST: number;
 }
